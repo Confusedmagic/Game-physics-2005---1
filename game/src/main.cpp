@@ -70,12 +70,34 @@ float angle = 0;
 
 FizziksWorld world;
 
+//Remove objects offscreen
+void cleanup()
+{
+	//For each object, check if it is offscreen!
+	for (int i = 0; i < world.objekts.size(); i++)
+	{
+		//Is it offscreen?
+		if (	world.objekts[i].position.y > GetScreenHeight()
+			||	world.objekts[i].position.y < 0
+			||  world.objekts[i].position.x > GetScreenWidth()
+			||  world.objekts[i].position.x < 0
+			)
+		{
+			//Destroy!
+			world.objekts.erase(world.objekts.begin() + i);
+			i--;
+		}
+	}
+
+}
+
 //Changes world state
 void update()
 {
 	dt = 1.0f / TARGET_FPS;
 	time += dt;
 
+	cleanup();
 	world.update();
 
 	if (IsKeyPressed(KEY_SPACE))
@@ -109,7 +131,7 @@ void draw()
 
 	GuiSliderBar(Rectangle{ 10, 120, 500, 30 }, "Gravity Y", TextFormat("Gravity Y: %.0f Px/sec^2", world.accelerationGravity.y), &world.accelerationGravity.y, -1000, 1000);
 
-
+	DrawText(TextFormat("Obects: %i", world.objekts.size()), 10, 160, 30, LIGHTGRAY);
 
 	DrawText(TextFormat("T: %6.2f", time), GetScreenWidth() - 140, 10, 30, LIGHTGRAY);
 
