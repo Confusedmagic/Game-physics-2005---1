@@ -22,11 +22,24 @@ public:
 	Vector2 velocity = { 0,0 };
 	float mass = 1; // in kg
 
-	float radius = 15; // circle radius in pixels
 	std::string name = "objekt";
-	Color color = RED;
+	Color color = GREEN;
 
-	void draw()
+	virtual void draw() //parent class draw. virtual keyword allows 
+		//this function to be overriden through the magic of polymorphism
+	{
+		DrawCircle(position.x, position.y, 1, color);
+		DrawText(name.c_str(), position.x, position.y, 10, LIGHTGRAY);
+	}
+};
+
+class FizziksObjektCircle : public FizziksObjekt
+{
+public:
+	float radius = 15; // circle radius in pixels
+
+	void draw()override //override keyword will cause an error if you are 
+		//NOT overriding a function
 	{
 		DrawCircle(position.x, position.y, radius, color);
 
@@ -42,12 +55,12 @@ class FizziksWorld
 private:
 	unsigned int objektCount = 0;
 public: 
-	std::vector<FizziksObjekt> objekts; // All objects in physics simulation
+	std::vector<FizziksObjekt*> objekts; // All objects in physics simulation
 	Vector2 accelerationGravity = {0, 9};
 
-	void add(FizziksObjekt newObject) // Add to physics simulation
+	void add(FizziksObjekt* newObject) // Add to physics simulation
 	{
-		newObject.name = std::to_string(objektCount);
+		newObject->name = std::to_string(objektCount);
 		objekts.push_back(newObject);
 		objektCount++;
 	}
@@ -58,9 +71,43 @@ public:
 		for (int i = 0; i < objekts.size(); i++)
 		{
 			//vel = change in position / time, therefore     change in position = vel * time 
-			objekts[i].position = objekts[i].position + objekts[i].velocity * dt;
+			objekts[i]->position = objekts[i]->position + objekts[i]->velocity * dt;
 			//accel = deltaV / time (change in velocity over time) therefore     deltaV = accel * time
-			objekts[i].velocity = objekts[i].velocity + accelerationGravity * dt;
+			objekts[i]->velocity = objekts[i]->velocity + accelerationGravity * dt;
+		}
+
+		checkCollision();
+	}
+
+	//Check for each object if it collides/overlaps with another object
+	void checkCollision()
+	{
+		//Turn objects green by default, they will turn red if colliding.
+		for (int i = 0; i < objekts.size(); i++)
+		{
+			objekts[i]->color = GREEN;
+		}
+
+		for (int i = 0; i < objekts.size(); i++)
+		{
+			for (int j = i + 1; j < objekts.size(); j++)
+			{
+				//circle-circle collision check...
+				FizziksObjektCircle* circleA = (FizziksObjektCircle*)objekts[i];
+				FizziksObjektCircle* circleB = (FizziksObjektCircle*)objekts[j];
+
+				float sumRadii = circleA->radius + circleB->radius;
+				Vector2 displacementAtoBs = circleB->position - circleA->position;
+
+				float distance = Vector2Length(displacementAtoBs);
+
+				if (distance < sumRadii) // If distance less than two radii combined...
+				{
+					//The two circles are overlapping! Turn them red
+					circleA->color = RED;
+					circleB->color = RED;
+				}
+			}
 		}
 	}
 };
@@ -77,13 +124,15 @@ void cleanup()
 	for (int i = 0; i < world.objekts.size(); i++)
 	{
 		//Is it offscreen?
-		if (	world.objekts[i].position.y > GetScreenHeight()
-			||	world.objekts[i].position.y < 0
-			||  world.objekts[i].position.x > GetScreenWidth()
-			||  world.objekts[i].position.x < 0
+		if (	world.objekts[i]->position.y > GetScreenHeight()
+			||	world.objekts[i]->position.y < 0
+			||  world.objekts[i]->position.x > GetScreenWidth()
+			||  world.objekts[i]->position.x < 0
 			)
 		{
 			//Destroy!
+			FizziksObjekt* toDelete = *(world.objekts.begin() + i);
+			delete toDelete;
 			world.objekts.erase(world.objekts.begin() + i);
 			i--;
 		}
@@ -102,14 +151,14 @@ void update()
 
 	if (IsKeyPressed(KEY_SPACE))
 	{
-		FizziksObjekt newBird;
-		newBird.position = { 100, (float)GetScreenHeight() - 100 };
-		newBird.velocity = { speed * (float)cos(angle * DEG2RAD), -speed * (float)sin(angle * DEG2RAD) };
+		FizziksObjektCircle* newBird = new FizziksObjektCircle();
+		newBird->position = { 100, (float)GetScreenHeight() - 100 };
+		newBird->velocity = { speed * (float)cos(angle * DEG2RAD), -speed * (float)sin(angle * DEG2RAD) };
 		
 		//rand() % N produces random number from 0 to N-1
-		newBird.radius = (rand() % 26) + 5; // radius from 5-30
+		newBird->radius = (rand() % 26) + 5; // radius from 5-30
 		Color randomColor = {rand() % 256 , rand() % 256, rand() % 256, 255};
-		newBird.color = randomColor;
+		newBird->color = randomColor;
 
 		world.add(newBird); // Add bird to simulation
 	}
@@ -143,7 +192,7 @@ void draw()
 	//Draw all physics objects!
 	for (int i = 0; i < world.objekts.size(); i++)
 	{
-		world.objekts[i].draw();
+		world.objekts[i]->draw();
 	}
 
 	EndDrawing();
