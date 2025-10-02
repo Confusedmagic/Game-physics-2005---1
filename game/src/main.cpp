@@ -22,11 +22,31 @@ public:
 	Vector2 velocity = { 0,0 };
 	float mass = 1; // in kg
 
-	float radius = 15; // circle radius in pixels
-	std::string name = "objekt";
+	std::string name = "objekt";		
 	Color color = RED;
 
-	void draw()
+	virtual void draw() // virtual keyword is required to allow this function to be overriden
+	{
+		DrawCircle(position.x, position.y, 2, color);
+		//DrawText(name.c_str(), position.x, position.y, 12, LIGHTGRAY);
+	}
+};
+
+class FizziksBox : public FizziksObjekt
+{
+public:
+	Vector2 size; // x = width, y = height
+};
+
+class FizziksCircle : public FizziksObjekt
+{
+public:
+	float radius; // circle radius in pixels
+
+	void draw() override // if we want to override a parent class function, 
+		// the signature (name, return type, parameter list) must match exactly
+		// the override keyword makes sure you are actually overriding something. 
+		// If you are not (i.e. you did it wrong) it will tell you by making a compile-time error
 	{
 		DrawCircle(position.x, position.y, radius, color);
 
@@ -37,17 +57,31 @@ public:
 	}
 };
 
+bool CircleCircleOverlap(FizziksCircle* circleA, FizziksCircle* circleB) // returns true if circles are overlapping
+{
+	Vector2 displacementFromAToB = circleB->position - circleA->position;
+	float distance = Vector2Length(displacementFromAToB);//Use pythagorean theorem to get magnitude of displacement vector between circles to get a distance
+	float sumOfRadii = circleA->radius + circleB->radius;
+	if (sumOfRadii > distance)
+	{
+		return true; //overlapping
+	}
+	else
+		return false; // not overlapping
+}
+
 class FizziksWorld
 {
 private:
 	unsigned int objektCount = 0;
 public: 
-	std::vector<FizziksObjekt> objekts; // All objects in physics simulation
+	std::vector<FizziksObjekt*> objekts; // All objects in physics simulation
+	
 	Vector2 accelerationGravity = {0, 9};
 
-	void add(FizziksObjekt newObject) // Add to physics simulation
+	void add(FizziksObjekt* newObject) // Add to physics simulation
 	{
-		newObject.name = std::to_string(objektCount);
+		newObject->name = std::to_string(objektCount);
 		objekts.push_back(newObject);
 		objektCount++;
 	}
@@ -57,10 +91,43 @@ public:
 	{
 		for (int i = 0; i < objekts.size(); i++)
 		{
+			FizziksObjekt* objekt = objekts[i];
+
 			//vel = change in position / time, therefore     change in position = vel * time 
-			objekts[i].position = objekts[i].position + objekts[i].velocity * dt;
+			objekt->position = objekt->position + objekt->velocity * dt;
 			//accel = deltaV / time (change in velocity over time) therefore     deltaV = accel * time
-			objekts[i].velocity = objekts[i].velocity + accelerationGravity * dt;
+			objekt->velocity = objekt->velocity + accelerationGravity * dt;
+		}
+
+		checkCollisions();
+	}
+
+	void checkCollisions()
+	{
+		//assuming all objects in objekts are circles...
+		//for each object...
+		for (int i = 0; i < objekts.size(); i++)
+		{
+			//check against another object...
+			for (int j = i + 1; j < objekts.size(); j++)
+			{
+				FizziksObjekt* objektPointerA = objekts[i];
+				FizziksCircle* circlePointerA = (FizziksCircle*)objektPointerA;
+
+				FizziksObjekt* objektPointerB = objekts[j];
+				FizziksCircle* circlePointerB = (FizziksCircle*)objektPointerB;
+
+				if (CircleCircleOverlap(circlePointerA, circlePointerB))
+				{
+					objektPointerA->color = RED;
+					objektPointerB->color = RED;
+				}
+				else
+				{
+					objektPointerA->color = GREEN;
+					objektPointerB->color = GREEN;
+				}
+			}
 		}
 	}
 };
@@ -76,15 +143,20 @@ void cleanup()
 	//For each object, check if it is offscreen!
 	for (int i = 0; i < world.objekts.size(); i++)
 	{
+		FizziksObjekt* objekt = world.objekts[i];
 		//Is it offscreen?
-		if (	world.objekts[i].position.y > GetScreenHeight()
-			||	world.objekts[i].position.y < 0
-			||  world.objekts[i].position.x > GetScreenWidth()
-			||  world.objekts[i].position.x < 0
+		if (	objekt->position.y > GetScreenHeight()
+			||	objekt->position.y < 0
+			||  objekt->position.x > GetScreenWidth()
+			||  objekt->position.x < 0
 			)
 		{
 			//Destroy!
-			world.objekts.erase(world.objekts.begin() + i);
+			std::vector<FizziksObjekt*>::iterator iterator = (world.objekts.begin() + i);
+			FizziksObjekt* pointerToFizziksObjekt = *iterator;
+			delete pointerToFizziksObjekt;
+
+			world.objekts.erase(iterator);
 			i--;
 		}
 	}
@@ -102,14 +174,16 @@ void update()
 
 	if (IsKeyPressed(KEY_SPACE))
 	{
-		FizziksObjekt newBird;
-		newBird.position = { 100, (float)GetScreenHeight() - 100 };
-		newBird.velocity = { speed * (float)cos(angle * DEG2RAD), -speed * (float)sin(angle * DEG2RAD) };
+		FizziksCircle* newBird = new FizziksCircle(); 
+		// New keyword allocates and reserves memory on the heap
+		// (as opposed to the stack, where the data will be lost on exiting scope)
+		newBird->position = { 100, (float)GetScreenHeight() - 100 };
+		newBird->velocity = { speed * (float)cos(angle * DEG2RAD), -speed * (float)sin(angle * DEG2RAD) };
 		
 		//rand() % N produces random number from 0 to N-1
-		newBird.radius = (rand() % 26) + 5; // radius from 5-30
+		newBird->radius = (rand() % 26) + 5; // radius from 5-30
 		Color randomColor = {rand() % 256 , rand() % 256, rand() % 256, 255};
-		newBird.color = randomColor;
+		newBird->color = randomColor;
 
 		world.add(newBird); // Add bird to simulation
 	}
@@ -143,11 +217,15 @@ void draw()
 	//Draw all physics objects!
 	for (int i = 0; i < world.objekts.size(); i++)
 	{
-		world.objekts[i].draw();
+		world.objekts[i]->draw();
+		//Through the magic of polymorphism, we can place multiple 
+		// types of objects in world.objekts. Circle, Box, Halfspace etc.
+		// Then, when we call the parent function draw(), we should get the 
+		// derived class behaviour specific to what that object actually is e.g.
+		// Circle.draw() on a Circle, Box.draw() on a Box
 	}
 
 	EndDrawing();
-
 }
 
 int main()
