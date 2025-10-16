@@ -14,6 +14,7 @@ See documentation here: https://www.raylib.com/, and examples here: https://www.
 const unsigned int TARGET_FPS = 50; //frames/second
 float dt = 1.0f / TARGET_FPS; //seconds/frame
 float time = 0;
+Vector2 birdLaunchPosition = {100, 1000};
 
 class FizziksObjekt
 {
@@ -91,6 +92,11 @@ public:
 	{
 		for (int i = 0; i < objekts.size(); i++)
 		{
+			objekts[i]->color = GREEN;
+		}
+
+		for (int i = 0; i < objekts.size(); i++)
+		{
 			FizziksObjekt* objekt = objekts[i];
 
 			//vel = change in position / time, therefore     change in position = vel * time 
@@ -121,11 +127,6 @@ public:
 				{
 					objektPointerA->color = RED;
 					objektPointerB->color = RED;
-				}
-				else
-				{
-					objektPointerA->color = GREEN;
-					objektPointerB->color = GREEN;
 				}
 			}
 		}
@@ -177,7 +178,7 @@ void update()
 		FizziksCircle* newBird = new FizziksCircle(); 
 		// New keyword allocates and reserves memory on the heap
 		// (as opposed to the stack, where the data will be lost on exiting scope)
-		newBird->position = { 100, (float)GetScreenHeight() - 100 };
+		newBird->position = birdLaunchPosition;
 		newBird->velocity = { speed * (float)cos(angle * DEG2RAD), -speed * (float)sin(angle * DEG2RAD) };
 		
 		//rand() % N produces random number from 0 to N-1
@@ -205,14 +206,15 @@ void draw()
 
 	GuiSliderBar(Rectangle{ 10, 120, 500, 30 }, "Gravity Y", TextFormat("Gravity Y: %.0f Px/sec^2", world.accelerationGravity.y), &world.accelerationGravity.y, -1000, 1000);
 
-	DrawText(TextFormat("Obects: %i", world.objekts.size()), 10, 160, 30, LIGHTGRAY);
+	GuiSliderBar(Rectangle{ 10, 160, 500, 30 }, "Launch Height", TextFormat("Height: %.0f", birdLaunchPosition.y), &(birdLaunchPosition.y), 0, GetScreenHeight());
+	
+	DrawText(TextFormat("Obects: %i", world.objekts.size()), 10, 200, 30, LIGHTGRAY);
 
 	DrawText(TextFormat("T: %6.2f", time), GetScreenWidth() - 140, 10, 30, LIGHTGRAY);
 
-	Vector2 startPos = {100, GetScreenHeight() - 100};
 	Vector2 velocity = {speed * cos(angle * DEG2RAD), -speed * sin(angle * DEG2RAD)};
 
-	DrawLineEx(startPos, startPos + velocity, 3, RED);
+	DrawLineEx(birdLaunchPosition, birdLaunchPosition + velocity, 3, RED);
 
 	//Draw all physics objects!
 	for (int i = 0; i < world.objekts.size(); i++)
