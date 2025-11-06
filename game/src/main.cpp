@@ -10,237 +10,292 @@ See documentation here: https://www.raylib.com/, and examples here: https://www.
 #include "game.h"
 #include <string>
 #include <vector>
+#include <cmath>
 
-const unsigned int TARGET_FPS = 50; //frames/second
-float dt = 1.0f / TARGET_FPS; //seconds/frame
-float time = 0;
-Vector2 birdLaunchPosition = {100, 1000};
+// ---- Safe fallback: dot for Vector2 (in case raymath lib isn't linked) ----
+inline float Vector2Dot(Vector2 a, Vector2 b) { return a.x * b.x + a.y * b.y; }
+
+// ---- Small color utilities ----
+static inline unsigned char u8lerp(unsigned char a, unsigned char b, float t)
+{
+    return (unsigned char)(a + (b - a) * t);
+}
+
+static inline Color ColorLerp(Color a, Color b, float t)
+{
+    if (t < 0) t = 0; if (t > 1) t = 1;
+    return Color{ u8lerp(a.r,b.r,t), u8lerp(a.g,b.g,t), u8lerp(a.b,b.b,t), u8lerp(a.a,b.a,t) };
+}
+
+// --------------------------------------------------------------------------
+const unsigned int TARGET_FPS = 50;
+float dt = 1.0f / TARGET_FPS;
+float timeNow = 0.0f;
+Vector2 birdLaunchPosition = { 100, 1000 };
 
 class FizziksObjekt
 {
 public:
-	Vector2 position = { 0,0 };
-	Vector2 velocity = { 0,0 };
-	float mass = 1; // in kg
+    Vector2 position = { 0,0 };
+    Vector2 velocity = { 0,0 };
+    float mass = 1;
+    std::string name = "objekt";
 
-	std::string name = "objekt";		
-	Color color = RED;
-
-	virtual void draw() // virtual keyword is required to allow this function to be overriden
-	{
-		DrawCircle(position.x, position.y, 2, color);
-		//DrawText(name.c_str(), position.x, position.y, 12, LIGHTGRAY);
-	}
-};
-
-class FizziksBox : public FizziksObjekt
-{
-public:
-	Vector2 size; // x = width, y = height
+    virtual ~FizziksObjekt() = default;
+    virtual void draw()
+    {
+        DrawCircle((int)position.x, (int)position.y, 2, GREEN);
+    }
 };
 
 class FizziksCircle : public FizziksObjekt
 {
 public:
-	float radius; // circle radius in pixels
+    float radius = 10.0f;
 
-	void draw() override // if we want to override a parent class function, 
-		// the signature (name, return type, parameter list) must match exactly
-		// the override keyword makes sure you are actually overriding something. 
-		// If you are not (i.e. you did it wrong) it will tell you by making a compile-time error
-	{
-		DrawCircle(position.x, position.y, radius, color);
+    // New color system:
+    Color baseColor = GREEN;     // assigned on add()
+    bool  isColliding = false;   // set each frame by collision pass
 
-		DrawText(name.c_str(), position.x, position.y, radius * 2, LIGHTGRAY);
+    void draw() override
+    {
+        // Blend toward red if colliding; otherwise use stable base color
+        Color drawCol = isColliding ? ColorLerp(baseColor, RED, 0.85f) : baseColor;
 
-		//Draw velocity (for fun)
-		DrawLineEx(position, position + velocity, 1, color);
-	}
+        DrawCircleV(position, radius, drawCol);
+        DrawText(name.c_str(), (int)position.x, (int)position.y, (int)(radius * 0.8f), LIGHTGRAY);
+        DrawLineEx(position, position + velocity, 1, drawCol);
+    }
 };
 
-bool CircleCircleOverlap(FizziksCircle* circleA, FizziksCircle* circleB) // returns true if circles are overlapping
+/* =========================
+   Halfspace (2D “infinite plane”)
+   Equation: dot(n, x) = d  (n must be unit length)
+   The “inside” is dot(n, x) >= d
+   ========================= */
+class FizziksHalfspace : public FizziksObjekt
 {
-	Vector2 displacementFromAToB = circleB->position - circleA->position;
-	float distance = Vector2Length(displacementFromAToB);//Use pythagorean theorem to get magnitude of displacement vector between circles to get a distance
-	float sumOfRadii = circleA->radius + circleB->radius;
-	if (sumOfRadii > distance)
-	{
-		return true; //overlapping
-	}
-	else
-		return false; // not overlapping
+public:
+    Vector2 n = { 0.70710678f, -0.70710678f }; // unit normal
+    float d = 400.0f;                          // offset
+    Color lineColor = { 190, 80, 80, 255 };
+
+    FizziksHalfspace() { n = Vector2Normalize(n); }
+
+    void draw() override
+    {
+        Vector2 p0 = Vector2Scale(n, d);           // a point on the line
+        Vector2 t = { -n.y, n.x };                // tangent
+        float   L = 5000.0f;
+
+        Vector2 a = p0 - Vector2Scale(t, L);
+        Vector2 b = p0 + Vector2Scale(t, L);
+
+        DrawLineEx(a, b, 6.0f, lineColor);
+
+        Vector2 tip = p0 + Vector2Scale(n, 60.0f);
+        DrawLineEx(p0, tip, 3.0f, lineColor);
+        Vector2 left = tip + Vector2Scale(Vector2Rotate(n, 140.0f * DEG2RAD), 15.0f);
+        Vector2 right = tip + Vector2Scale(Vector2Rotate(n, -140.0f * DEG2RAD), 15.0f);
+        DrawTriangle(tip, left, right, lineColor);
+
+        // light fill on the inside side
+        Vector2 q0 = p0 + Vector2Scale(t, L);
+        Vector2 q1 = p0 - Vector2Scale(t, L);
+        Vector2 q2 = q1 + Vector2Scale(n, 8000.0f);
+        Vector2 q3 = q0 + Vector2Scale(n, 8000.0f);
+        Color fill = { 190, 80, 80, 60 };
+        DrawTriangle(q0, q1, q2, fill);
+        DrawTriangle(q0, q2, q3, fill);
+    }
+};
+
+// -------------------- collision helpers --------------------
+static inline bool CircleCircleOverlap(const FizziksCircle* A, const FizziksCircle* B)
+{
+    Vector2 d = B->position - A->position;
+    float   dist = Vector2Length(d);
+    return dist < (A->radius + B->radius);
 }
 
+static inline bool CircleHalfspaceOverlap(const FizziksCircle* C, const FizziksHalfspace* H)
+{
+    float s = Vector2Dot(H->n, C->position) - H->d;   // signed distance to plane
+    return s < C->radius;
+}
+
+// --------------------------- world -------------------------
 class FizziksWorld
 {
 private:
-	unsigned int objektCount = 0;
-public: 
-	std::vector<FizziksObjekt*> objekts; // All objects in physics simulation
-	
-	Vector2 accelerationGravity = {0, 9};
+    unsigned int objektCount = 0;
 
-	void add(FizziksObjekt* newObject) // Add to physics simulation
-	{
-		newObject->name = std::to_string(objektCount);
-		objekts.push_back(newObject);
-		objektCount++;
-	}
+public:
+    std::vector<FizziksObjekt*> objekts;
+    Vector2 accelerationGravity = { 0, 9 };
 
-	// Update state of all physics objects
-	void update()
-	{
-		for (int i = 0; i < objekts.size(); i++)
-		{
-			objekts[i]->color = GREEN;
-		}
+    void add(FizziksObjekt* newObject)
+    {
+        newObject->name = std::to_string(objektCount);
 
-		for (int i = 0; i < objekts.size(); i++)
-		{
-			FizziksObjekt* objekt = objekts[i];
+        // Assign a stable base color for circles using HSV (new color method)
+        if (auto* c = dynamic_cast<FizziksCircle*>(newObject))
+        {
+            float hue = fmodf((objektCount * 97.0f), 360.0f);       // pseudo-random but stable
+            c->baseColor = ColorFromHSV(hue, 0.65f, 0.95f);
+        }
 
-			//vel = change in position / time, therefore     change in position = vel * time 
-			objekt->position = objekt->position + objekt->velocity * dt;
-			//accel = deltaV / time (change in velocity over time) therefore     deltaV = accel * time
-			objekt->velocity = objekt->velocity + accelerationGravity * dt;
-		}
+        objekts.push_back(newObject);
+        objektCount++;
+    }
 
-		checkCollisions();
-	}
+    void integrate()
+    {
+        for (auto* o : objekts)
+        {
+            if (auto* c = dynamic_cast<FizziksCircle*>(o))
+            {
+                c->position = c->position + c->velocity * dt;
+                c->velocity = c->velocity + accelerationGravity * dt;
+            }
+        }
+    }
 
-	void checkCollisions()
-	{
-		//assuming all objects in objekts are circles...
-		//for each object...
-		for (int i = 0; i < objekts.size(); i++)
-		{
-			//check against another object...
-			for (int j = i + 1; j < objekts.size(); j++)
-			{
-				FizziksObjekt* objektPointerA = objekts[i];
-				FizziksCircle* circlePointerA = (FizziksCircle*)objektPointerA;
+    void collide()
+    {
+        // reset collision flags each frame (don’t touch colors directly)
+        for (auto* o : objekts)
+            if (auto* c = dynamic_cast<FizziksCircle*>(o)) c->isColliding = false;
 
-				FizziksObjekt* objektPointerB = objekts[j];
-				FizziksCircle* circlePointerB = (FizziksCircle*)objektPointerB;
+        // circle–circle
+        for (size_t i = 0; i < objekts.size(); ++i)
+        {
+            auto* A = dynamic_cast<FizziksCircle*>(objekts[i]);
+            if (!A) continue;
 
-				if (CircleCircleOverlap(circlePointerA, circlePointerB))
-				{
-					objektPointerA->color = RED;
-					objektPointerB->color = RED;
-				}
-			}
-		}
-	}
+            for (size_t j = i + 1; j < objekts.size(); ++j)
+            {
+                auto* B = dynamic_cast<FizziksCircle*>(objekts[j]);
+                if (B && CircleCircleOverlap(A, B))
+                {
+                    A->isColliding = true;
+                    B->isColliding = true;
+                }
+            }
+
+            // circle–halfspace
+            for (auto* o : objekts)
+            {
+                if (auto* H = dynamic_cast<FizziksHalfspace*>(o))
+                {
+                    if (CircleHalfspaceOverlap(A, H)) A->isColliding = true;
+                }
+            }
+        }
+    }
+
+    void update()
+    {
+        integrate();
+        collide();
+    }
 };
 
+// --------------------------- globals ------------------------
 float speed = 100;
-float angle = 0;
+float angleDeg = 0;
 
 FizziksWorld world;
 
-//Remove objects offscreen
+// Halfspace UI
+float hsAngleDeg = 135.0f;
+float hsOffset = 500.0f;
+FizziksHalfspace* gHalfspace = nullptr;
+
+// remove circles that leave the screen
 void cleanup()
 {
-	//For each object, check if it is offscreen!
-	for (int i = 0; i < world.objekts.size(); i++)
-	{
-		FizziksObjekt* objekt = world.objekts[i];
-		//Is it offscreen?
-		if (	objekt->position.y > GetScreenHeight()
-			||	objekt->position.y < 0
-			||  objekt->position.x > GetScreenWidth()
-			||  objekt->position.x < 0
-			)
-		{
-			//Destroy!
-			std::vector<FizziksObjekt*>::iterator iterator = (world.objekts.begin() + i);
-			FizziksObjekt* pointerToFizziksObjekt = *iterator;
-			delete pointerToFizziksObjekt;
-
-			world.objekts.erase(iterator);
-			i--;
-		}
-	}
-
+    for (int i = 0; i < (int)world.objekts.size(); ++i)
+    {
+        if (auto* c = dynamic_cast<FizziksCircle*>(world.objekts[i]))
+        {
+            if (c->position.y > GetScreenHeight() || c->position.y < 0 ||
+                c->position.x > GetScreenWidth() || c->position.x < 0)
+            {
+                delete c;
+                world.objekts.erase(world.objekts.begin() + i);
+                --i;
+            }
+        }
+    }
 }
 
-//Changes world state
 void update()
 {
-	dt = 1.0f / TARGET_FPS;
-	time += dt;
+    dt = 1.0f / TARGET_FPS;
+    timeNow += dt;
 
-	cleanup();
-	world.update();
+    // live-edit halfspace
+    if (gHalfspace)
+    {
+        float ang = hsAngleDeg * DEG2RAD;
+        gHalfspace->n = Vector2Normalize(Vector2{ cosf(ang), -sinf(ang) }); // y-down screen
+        gHalfspace->d = hsOffset;
+    }
 
-	if (IsKeyPressed(KEY_SPACE))
-	{
-		FizziksCircle* newBird = new FizziksCircle(); 
-		// New keyword allocates and reserves memory on the heap
-		// (as opposed to the stack, where the data will be lost on exiting scope)
-		newBird->position = birdLaunchPosition;
-		newBird->velocity = { speed * (float)cos(angle * DEG2RAD), -speed * (float)sin(angle * DEG2RAD) };
-		
-		//rand() % N produces random number from 0 to N-1
-		newBird->radius = (rand() % 26) + 5; // radius from 5-30
-		Color randomColor = {rand() % 256 , rand() % 256, rand() % 256, 255};
-		newBird->color = randomColor;
+    cleanup();
+    world.update();
 
-		world.add(newBird); // Add bird to simulation
-	}
+    if (IsKeyPressed(KEY_SPACE))
+    {
+        auto* c = new FizziksCircle();
+        c->position = birdLaunchPosition;
+        c->velocity = { speed * cosf(angleDeg * DEG2RAD), -speed * sinf(angleDeg * DEG2RAD) };
+        c->radius = (float)((rand() % 26) + 5); // 5–30
+        world.add(c);
+    }
 }
 
-//Display world state
 void draw()
 {
-	BeginDrawing();
-	ClearBackground(BLACK);
-	DrawText("Joss Moo-Young 123456789", 10, float(GetScreenHeight() - 30), 20, LIGHTGRAY);
+    BeginDrawing();
+    ClearBackground(BLACK);
 
+    DrawText("Halfspace overlap: circles tint toward RED when colliding", 10, 10, 18, LIGHTGRAY);
+    GuiSliderBar(Rectangle{ 10, 40, 500, 30 }, "Speed", TextFormat("Speed: %.0f", speed), &speed, -1000, 1000);
+    GuiSliderBar(Rectangle{ 10, 80, 500, 30 }, "Angle", TextFormat("Angle: %.0f deg", angleDeg), &angleDeg, -180, 180);
+    GuiSliderBar(Rectangle{ 10,120, 500, 30 }, "Gravity Y", TextFormat("gY: %.0f", world.accelerationGravity.y), &world.accelerationGravity.y, -1000, 1000);
+    GuiSliderBar(Rectangle{ 10,160, 500, 30 }, "Launch Height", TextFormat("H: %.0f", birdLaunchPosition.y), &(birdLaunchPosition.y), 0, (float)GetScreenHeight());
+    GuiSliderBar(Rectangle{ 10,210, 500, 30 }, "Halfspace Angle", TextFormat("%.0f deg", hsAngleDeg), &hsAngleDeg, -180, 180);
+    GuiSliderBar(Rectangle{ 10,250, 500, 30 }, "Halfspace Offset", TextFormat("d=%.0f", hsOffset), &hsOffset, -2000, 2000);
 
-	GuiSliderBar(Rectangle{ 10, 15, 1000, 20 }, "", TextFormat("%.2f", time), &time, 0, 240);
+    DrawText(TextFormat("Objects: %i", (int)world.objekts.size()), 10, 290, 30, LIGHTGRAY);
+    DrawText(TextFormat("T: %6.2f", timeNow), GetScreenWidth() - 140, 10, 30, LIGHTGRAY);
 
-	GuiSliderBar(Rectangle{ 10, 40, 500, 30 }, "Speed", TextFormat("Speed: %.0f", speed), &speed, -1000, 1000);
+    Vector2 v = { speed * cosf(angleDeg * DEG2RAD), -speed * sinf(angleDeg * DEG2RAD) };
+    DrawLineEx(birdLaunchPosition, birdLaunchPosition + v, 3, RED);
 
-	GuiSliderBar(Rectangle{ 10, 80, 500, 30 }, "Angle", TextFormat("Angle: %.0f Degrees", angle), &angle, -180, 180);
+    for (auto* o : world.objekts) o->draw();
 
-	GuiSliderBar(Rectangle{ 10, 120, 500, 30 }, "Gravity Y", TextFormat("Gravity Y: %.0f Px/sec^2", world.accelerationGravity.y), &world.accelerationGravity.y, -1000, 1000);
-
-	GuiSliderBar(Rectangle{ 10, 160, 500, 30 }, "Launch Height", TextFormat("Height: %.0f", birdLaunchPosition.y), &(birdLaunchPosition.y), 0, GetScreenHeight());
-	
-	DrawText(TextFormat("Obects: %i", world.objekts.size()), 10, 200, 30, LIGHTGRAY);
-
-	DrawText(TextFormat("T: %6.2f", time), GetScreenWidth() - 140, 10, 30, LIGHTGRAY);
-
-	Vector2 velocity = {speed * cos(angle * DEG2RAD), -speed * sin(angle * DEG2RAD)};
-
-	DrawLineEx(birdLaunchPosition, birdLaunchPosition + velocity, 3, RED);
-
-	//Draw all physics objects!
-	for (int i = 0; i < world.objekts.size(); i++)
-	{
-		world.objekts[i]->draw();
-		//Through the magic of polymorphism, we can place multiple 
-		// types of objects in world.objekts. Circle, Box, Halfspace etc.
-		// Then, when we call the parent function draw(), we should get the 
-		// derived class behaviour specific to what that object actually is e.g.
-		// Circle.draw() on a Circle, Box.draw() on a Box
-	}
-
-	EndDrawing();
+    EndDrawing();
 }
 
 int main()
 {
-	InitWindow(InitialWidth, InitialHeight, "GAME2005 Joss Moo-Young 123456789");
-	SetTargetFPS(TARGET_FPS);
+    InitWindow(InitialWidth, InitialHeight, "GAME2005 Halfspace Overlap (HSV color method)");
+    SetTargetFPS(TARGET_FPS);
 
-	while (!WindowShouldClose()) // Loops TARGET_FPS times per second
-	{
-		update();
-		draw();
-	}
+    gHalfspace = new FizziksHalfspace();
+    world.add(gHalfspace);
 
-	CloseWindow();
-	return 0;
+    while (!WindowShouldClose())
+    {
+        update();
+        draw();
+    }
+
+    for (auto* o : world.objekts) delete o;
+    world.objekts.clear();
+    CloseWindow();
+    return 0;
 }
