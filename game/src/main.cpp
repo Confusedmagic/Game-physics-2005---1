@@ -195,9 +195,6 @@ bool CircleHalfspaceCollisionResponse(FizziksCircle* circle, FizziksHalfspace* h
 		return false;
 	}
 
-	//DrawLineEx(circle->position, circle->position - projectionDisplacementOntoNormal, 1, GRAY);
-	//Vector2 midpoint = circle->position - projectionDisplacementOntoNormal * 0.5f;
-	//DrawText(TextFormat("D: %6.0f", dot), midpoint.x, midpoint.y, 30, GRAY);
 
 	return dot < circle->radius;
 }
