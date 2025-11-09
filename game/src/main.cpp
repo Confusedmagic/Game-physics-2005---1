@@ -116,6 +116,8 @@ bool CircleCircleOverlap(FizziksCircle* circleA, FizziksCircle* circleB) // retu
 	Vector2 displacementFromAToB = circleB->position - circleA->position;
 	float distance = Vector2Length(displacementFromAToB);//Use pythagorean theorem to get magnitude of displacement vector between circles to get a distance
 	float sumOfRadii = circleA->radius + circleB->radius;
+	
+
 	if (sumOfRadii > distance)
 	{
 		return true; //overlapping
@@ -124,7 +126,32 @@ bool CircleCircleOverlap(FizziksCircle* circleA, FizziksCircle* circleB) // retu
 		return false; // not overlapping
 }
 
-//TODO:
+
+// moves objects apart if overlapping
+bool CircleCircleCollisionResponse(FizziksCircle* circleA, FizziksCircle* circleB) // returns true if circles are overlapping
+{
+	Vector2 displacementFromAToB = circleB->position - circleA->position;
+	float distance = Vector2Length(displacementFromAToB);//Use pythagorean theorem to get magnitude of displacement vector between circles to get a distance
+	float sumOfRadii = circleA->radius + circleB->radius;
+	float overlap = sumOfRadii - distance;
+
+	if (overlap > 0)
+	{
+		Vector2 normalAtoB;
+		if (abs(distance) < 0.0001f)
+			normalAtoB = { 0,1 };
+		else
+			normalAtoB = displacementFromAToB / distance;
+		Vector2 mtv = normalAtoB * overlap; //minimum translation vector. Shortest distance/direction I need to move bu so the objects no longer overlap
+
+		circleA->position -= mtv * 0.5f;
+		circleB->position += mtv * 0.5f;
+		return true; //overlapping
+	}
+	else
+		return false; // not overlapping
+}
+
 // Returns true if the circle overlaps the halfspace, false otherwise
 bool CircleHalfspaceOverlap(FizziksCircle* circle, FizziksHalfspace* halfspace) // returns true if circles are overlapping
 {
@@ -150,6 +177,31 @@ bool CircleHalfspaceOverlap(FizziksCircle* circle, FizziksHalfspace* halfspace) 
 	return dot < circle->radius;
 }
 
+bool CircleHalfspaceCollisionResponse(FizziksCircle* circle, FizziksHalfspace* halfspace) // returns true if circles are overlapping
+{
+
+	Vector2 displacementToCircle = circle->position - halfspace->position;
+	float dot = Vector2DotProduct(displacementToCircle, halfspace->getNormal());
+	Vector2 projectionDisplacementOntoNormal = halfspace->getNormal() * dot;
+	float overlap = circle->radius - dot;
+	if (overlap > 0)
+	{
+		Vector2 mtv = halfspace->getNormal() * overlap;
+		circle->position += mtv;
+		return true;
+	}
+	else
+	{
+		return false;
+	}
+
+	//DrawLineEx(circle->position, circle->position - projectionDisplacementOntoNormal, 1, GRAY);
+	//Vector2 midpoint = circle->position - projectionDisplacementOntoNormal * 0.5f;
+	//DrawText(TextFormat("D: %6.0f", dot), midpoint.x, midpoint.y, 30, GRAY);
+
+	return dot < circle->radius;
+}
+
 class FizziksWorld
 {
 private:
@@ -157,7 +209,7 @@ private:
 public:
 	std::vector<FizziksObjekt*> objekts; // All objects in physics simulation
 
-	Vector2 accelerationGravity = { 0, 9 };
+	Vector2 accelerationGravity = { 0, 0 };
 
 	void add(FizziksObjekt* newObject) // Add to physics simulation
 	{
@@ -212,16 +264,16 @@ public:
 				//
 				if (shapeOfA == CIRCLE && shapeOfB == CIRCLE)
 				{
-					didOverlap = CircleCircleOverlap((FizziksCircle*)objektPointerA, (FizziksCircle*)objektPointerB);
+					didOverlap = CircleCircleCollisionResponse((FizziksCircle*)objektPointerA, (FizziksCircle*)objektPointerB);
 				}
 				//If one is a circle and one is a halfspace
 				else if (shapeOfA == CIRCLE && shapeOfB == HALF_SPACE)
 				{
-					didOverlap = CircleHalfspaceOverlap((FizziksCircle*)objektPointerA, (FizziksHalfspace*)objektPointerB);
+					didOverlap = CircleHalfspaceCollisionResponse((FizziksCircle*)objektPointerA, (FizziksHalfspace*)objektPointerB);
 				}
 				else if (shapeOfA == HALF_SPACE && shapeOfB == CIRCLE)
 				{
-					didOverlap = CircleHalfspaceOverlap((FizziksCircle*)objektPointerB, (FizziksHalfspace*)objektPointerA);
+					didOverlap = CircleHalfspaceCollisionResponse((FizziksCircle*)objektPointerB, (FizziksHalfspace*)objektPointerA);
 				}
 
 				if (didOverlap)
@@ -234,11 +286,13 @@ public:
 	}
 };
 
-float speed = 100;
+float speed = 0;
 float angle = 0;
+Vector2 startPos = { 100, 500 };
 
 FizziksWorld world;
 FizziksHalfspace halfspace;
+FizziksHalfspace halfspace2;
 
 //Remove objects offscreen
 void cleanup()
@@ -280,7 +334,7 @@ void update()
 		FizziksCircle* newBird = new FizziksCircle();
 		// New keyword allocates and reserves memory on the heap
 		// (as opposed to the stack, where the data will be lost on exiting scope)
-		newBird->position = { 100, (float)GetScreenHeight() - 100 };
+		newBird->position = startPos;
 		newBird->velocity = { speed * (float)cos(angle * DEG2RAD), -speed * (float)sin(angle * DEG2RAD) };
 
 		//rand() % N produces random number from 0 to N-1
@@ -297,7 +351,7 @@ void draw()
 {
 	BeginDrawing();
 	ClearBackground(BLACK);
-	DrawText("Joss Moo-Young 123456789", 10, float(GetScreenHeight() - 30), 20, LIGHTGRAY);
+	DrawText("Earl Fabian 101554213", 10, float(GetScreenHeight() - 30), 20, LIGHTGRAY);
 
 
 	GuiSliderBar(Rectangle{ 10, 15, 1000, 20 }, "", TextFormat("%.2f", time), &time, 0, 240);
@@ -312,7 +366,7 @@ void draw()
 
 	DrawText(TextFormat("T: %6.2f", time), GetScreenWidth() - 140, 10, 30, LIGHTGRAY);
 
-	Vector2 startPos = { 100, GetScreenHeight() - 100 };
+
 	Vector2 velocity = { speed * cos(angle * DEG2RAD), -speed * sin(angle * DEG2RAD) };
 
 	DrawLineEx(startPos, startPos + velocity, 3, RED);
@@ -341,11 +395,17 @@ void draw()
 
 int main()
 {
-	InitWindow(InitialWidth, InitialHeight, "GAME2005 Joss Moo-Young 123456789");
+	InitWindow(InitialWidth, InitialHeight, "GAME2005 Earl Fabian 101554213");
 	SetTargetFPS(TARGET_FPS);
 	halfspace.isStatic = true;
-	halfspace.position = { 500, 700 };
+	halfspace.position = { 200, 700 };
+	halfspace.setRotationDegrees(-30);
 	world.add(&halfspace);
+	halfspace2.isStatic = true;
+	halfspace2.position = { 400, 700 };
+	halfspace2.setRotationDegrees(30);
+	world.add(&halfspace2);
+	startPos = { 100, GetScreenHeight() - 500.0f };	
 
 	while (!WindowShouldClose()) // Loops TARGET_FPS times per second
 	{
