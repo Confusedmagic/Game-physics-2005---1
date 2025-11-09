@@ -399,7 +399,7 @@ int main()
 	halfspace.setRotationDegrees(-30);
 	world.add(&halfspace);
 	halfspace2.isStatic = true;
-	halfspace2.position = { 400, 700 };
+	halfspace2.position = { 400, 800 };
 	halfspace2.setRotationDegrees(30);
 	world.add(&halfspace2);
 	startPos = { 100, GetScreenHeight() - 500.0f };	
