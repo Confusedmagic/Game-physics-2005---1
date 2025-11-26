@@ -49,7 +49,7 @@ class FizziksWorld
 private:
     unsigned int objektCount = 0;
 public:
-    std::vector<FizziksObjekt*> objekts; 
+    std::vector<FizziksObjekt*> objekts; // Vector 2 and it controls the Y component of gravity with the slider
 
     Vector2 accelerationGravity = { 0, 0 };
 
@@ -147,7 +147,7 @@ public:
         DrawCircle(position.x, position.y, radius, color);
         DrawText(name.c_str(), position.x, position.y, radius * 2, LIGHTGRAY);
 
-
+        // Colors of the line and which represents
         Vector2 Fgravity = world.accelerationGravity * mass;
         DrawLineEx(position, position + Fgravity * 0.05f, 2, PURPLE);
 
@@ -282,8 +282,8 @@ bool CircleHalfspaceCollisionResponse(FizziksCircle* circle, FizziksHalfspace* h
         return false;
     }
 
-    // --- 1. Positional correction ---
-    Vector2 mtv = halfspace->getNormal() * overlap;
+
+    Vector2 mtv = halfspace->getNormal() * overlap; // Stops penetration so the circles dont tunnel through
     circle->position += mtv;
 
     // --- 2. Normal force ---
@@ -301,7 +301,7 @@ bool CircleHalfspaceCollisionResponse(FizziksCircle* circle, FizziksHalfspace* h
         circle->velocity -= halfspace->getNormal() * vAlongNormal;
     }
 
-    // --- 3. Friction along the surface ---
+    // --- 3. Friction along the surface --- 
     // Tangent direction along plane
     Vector2 tangent = Vector2Rotate(halfspace->getNormal(), PI * 0.5f);
     float vAlongTangent = Vector2DotProduct(circle->velocity, tangent);
@@ -357,7 +357,7 @@ void cleanup()
     }
 }
 
-
+// I created this sphere setup struct and array to manage the properties of the first four spheres
 struct SphereSetup
 {
     Color color;
@@ -426,9 +426,6 @@ void update()
     }
 }
 
-// -------------------------------------------------------------
-//  Display world state
-// -------------------------------------------------------------
 
 void draw()
 {
@@ -469,9 +466,6 @@ void draw()
     EndDrawing();
 }
 
-// -------------------------------------------------------------
-//  main
-// -------------------------------------------------------------
 
 int main()
 {
@@ -490,7 +484,7 @@ int main()
 
     startPos = { 100, GetScreenHeight() - 500.0f };
 
-    while (!WindowShouldClose()) // Loops TARGET_FPS times per second
+    while (!WindowShouldClose()) 
     {
         update();
         draw();
